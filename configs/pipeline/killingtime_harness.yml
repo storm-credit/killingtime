@@ -8,11 +8,25 @@ targets:
   - ko
   - es
 
-source_exclude:
+delivery_exclude:
   - zh
   - zh-Hans
   - zh-Hant
   - en
+
+source_preference:
+  - zh-Hans
+  - zh-Hant
+  - zh
+  - ja
+  - ko
+  - en
+
+hardsub:
+  default_mode: keep
+  modes:
+    - keep
+    - clean
 
 hooks:
   - intake
@@ -98,9 +112,9 @@ fallbacks:
       - paddle_ocr
   hardsub_cleanup:
     preferred:
-      - masked_region_inpaint
-    fallback:
       - keep_and_overlay
+    fallback:
+      - masked_region_inpaint
 
 extension_points:
   agents: configs/agents/dynamic-agents.yml

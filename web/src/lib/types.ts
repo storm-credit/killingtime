@@ -12,7 +12,12 @@ export type HarnessConfig = {
     success_definition: string;
   }>;
   targets?: string[];
-  source_exclude?: string[];
+  delivery_exclude?: string[];
+  source_preference?: string[];
+  hardsub?: {
+    default_mode: string;
+    modes?: string[];
+  };
   download?: {
     container: string;
     video_codec: string;

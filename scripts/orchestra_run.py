@@ -5,18 +5,20 @@ Chains stages per configs/pipeline/killingtime_harness.yml:
   intake -> source_probe -> subtitle_discovery -> source_extraction
          -> translation -> qa -> export
 
-Each step writes a JSON/SRT sidecar in outputs/. A project manifest is written
-to outputs/manifests/<video_id>.yml for the web console to display progress.
-
-The runner is conservative: if a stage's preferred tool is unavailable, the
-fallback defined in the harness is attempted. ASR / OCR fallback is marked as
-TODO for a future skill — this MVP prefers downloading subtitle tracks.
+Policies enforced here:
+  - Track subtitles are the preferred translation source (timing preserved).
+  - delivery_exclude (zh, en) applies only to the final package, never to
+    the translation source.
+  - Hardsub mode defaults to `keep`: the original video is not touched,
+    ko/es cues overlay on playback. `--clean-hardsub` opts into delogo.
+  - ASR (faster-whisper) runs only when 0 subtitle tracks exist.
+  - `--existing` + `--sub` reuse already-downloaded assets.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
+import re
 import subprocess
 import sys
 import time
@@ -27,15 +29,14 @@ import yaml
 from _common import (
     DOWNLOAD_DIR,
     MANIFEST_DIR,
-    PROBE_DIR,
     REPORT_DIR,
     ROOT,
     SUBTITLE_DIR,
-    TRANSLATED_DIR,
     ensure_dirs,
     log,
     read_json,
     run,
+    sanitize_stem,
     write_json,
 )
 
@@ -45,6 +46,10 @@ SCRIPTS = Path(__file__).resolve().parent
 
 def py(*args: str) -> list[str]:
     return [sys.executable, *args]
+
+
+def load_harness() -> dict:
+    return yaml.safe_load((ROOT / "configs" / "pipeline" / "killingtime_harness.yml").read_text(encoding="utf-8"))
 
 
 def write_manifest(video_id: str, project: dict) -> Path:
@@ -59,6 +64,28 @@ def update_manifest(path: Path, patch: dict) -> dict:
     project.update(patch)
     path.write_text(yaml.safe_dump({"project": project}, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return project
+
+
+def synth_download_report(video: Path, video_id: str) -> Path:
+    report = {
+        "video_id": video_id,
+        "title": video_id,
+        "channel": None,
+        "duration": None,
+        "webpage_url": None,
+        "available_subtitles": [],
+        "available_auto_captions": [],
+        "file": str(video.relative_to(ROOT)) if video.is_absolute() and ROOT in video.parents else str(video),
+        "reused": True,
+    }
+    path = REPORT_DIR / f"{video_id}.download.json"
+    write_json(path, report)
+    return path
+
+
+def fetch_remote_metadata(url: str) -> dict:
+    result = run(py("-m", "yt_dlp", "--dump-single-json", "--no-warnings", url))
+    return json.loads(result.stdout)
 
 
 def pull_subtitle(url: str, video_id: str, track: str) -> Path | None:
@@ -79,8 +106,9 @@ def pull_subtitle(url: str, video_id: str, track: str) -> Path | None:
     except subprocess.CalledProcessError as exc:
         log("source_extraction", f"yt-dlp subtitle pull failed for {track}: {exc}")
         return None
+    base = track.split("-")[0]
     for cand in sorted(SUBTITLE_DIR.glob(f"{video_id}*.srt")):
-        if track.split("-")[0] in cand.name or track in cand.name:
+        if track in cand.name or base in cand.name:
             return cand
     matches = sorted(SUBTITLE_DIR.glob(f"{video_id}*.srt"))
     return matches[0] if matches else None
@@ -88,15 +116,27 @@ def pull_subtitle(url: str, video_id: str, track: str) -> Path | None:
 
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
-    ap.add_argument("url")
+    ap.add_argument("url", nargs="?", help="YouTube URL (omit when using --existing with --video-id)")
     ap.add_argument("--targets", nargs="+", default=["ko", "es"])
+    ap.add_argument("--existing", type=Path, default=None,
+                    help="Reuse an already-downloaded video file")
+    ap.add_argument("--sub", type=Path, default=None,
+                    help="Use an existing source SRT, skipping subtitle_discovery + extraction")
+    ap.add_argument("--source-lang", default=None,
+                    help="Source language code for the SRT (used with --sub)")
+    ap.add_argument("--video-id", default=None,
+                    help="Override video id (required when using --existing without a URL)")
+    ap.add_argument("--clean-hardsub", action="store_true",
+                    help="Apply ffmpeg delogo to remove burned-in subtitles (may blur the region)")
     ap.add_argument("--skip-hardsub-probe", action="store_true")
-    ap.add_argument("--dry-run", action="store_true", help="plan only, no network")
+    ap.add_argument("--asr-model", default="small", help="faster-whisper model size")
+    ap.add_argument("--dry-run", action="store_true")
     return ap.parse_args()
 
 
-def load_harness() -> dict:
-    return yaml.safe_load((ROOT / "configs" / "pipeline" / "killingtime_harness.yml").read_text(encoding="utf-8"))
+def count_cues(p: Path) -> int:
+    return len(re.findall(r"\d{2}:\d{2}:\d{2}[,\.]\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}[,\.]\d{3}",
+                          p.read_text(encoding="utf-8")))
 
 
 def main() -> int:
@@ -107,49 +147,63 @@ def main() -> int:
     if args.dry_run:
         plan = {
             "url": args.url,
+            "existing": str(args.existing) if args.existing else None,
+            "sub": str(args.sub) if args.sub else None,
             "targets": args.targets,
             "stage_order": harness["stage_order"],
-            "source_exclude": harness.get("source_exclude", []),
+            "delivery_exclude": harness.get("delivery_exclude", []),
+            "source_preference": harness.get("source_preference", []),
+            "hardsub_mode": "clean" if args.clean_hardsub else harness.get("hardsub", {}).get("default_mode", "keep"),
             "engine": harness.get("translation_engine", {}),
         }
         print(json.dumps(plan, indent=2, ensure_ascii=False))
         return 0
 
-    # ---- intake ----
-    log("orchestra", f"intake: {args.url}")
-    download_cmd = py(str(SCRIPTS / "download_best.py"), args.url,
-                      "--format", harness["download"]["format_expression"],
-                      "--container", harness["download"]["merge_output_format"])
-    result = run(download_cmd)
-    report_path = Path(result.stdout.strip().splitlines()[-1])
-    report = read_json(report_path)
-    video_id = report["video_id"]
+    # ---- intake: download or reuse ----
+    if args.existing:
+        video_path = args.existing.resolve()
+        if not video_path.exists():
+            raise SystemExit(f"--existing not found: {video_path}")
+        video_id = args.video_id or sanitize_stem(video_path.stem)
+        log("orchestra", f"intake: reusing existing video {video_path}")
+        report_path = synth_download_report(video_path, video_id)
+        report = read_json(report_path)
+    else:
+        if not args.url:
+            raise SystemExit("either url or --existing is required")
+        log("orchestra", f"intake: {args.url}")
+        download_cmd = py(str(SCRIPTS / "download_best.py"), args.url,
+                          "--format", harness["download"]["format_expression"],
+                          "--container", harness["download"]["merge_output_format"])
+        result = run(download_cmd)
+        report_path = Path(result.stdout.strip().splitlines()[-1])
+        report = read_json(report_path)
+        video_id = report["video_id"]
+        if not report.get("file"):
+            raise SystemExit("download did not produce a video path")
+        video_path = ROOT / report["file"]
 
     project = {
         "id": video_id,
         "title": report.get("title") or video_id,
-        "source_url": report.get("webpage_url") or args.url,
-        "source_language": "auto",
+        "source_url": report.get("webpage_url") or (args.url if args.url else "(local)"),
+        "source_language": args.source_lang or "auto",
         "targets": args.targets,
         "current_stage": "intake",
-        "preferred_path": "yt_dlp_subtitles",
-        "fallback_path": ["asr"],
+        "preferred_path": "track_subtitles",
+        "fallback_path": ["asr_whisper"],
         "status": "in_progress",
-        "notes": [f"started {time.strftime('%Y-%m-%d %H:%M:%S')}"],
+        "notes": [f"started {time.strftime('%Y-%m-%d %H:%M:%S')}",
+                  f"hardsub_mode={'clean' if args.clean_hardsub else 'keep'}"],
         "artifacts": {
-            "download_report": str(report_path.relative_to(ROOT)),
-            "video": report.get("file"),
+            "download_report": str(report_path.relative_to(ROOT)) if ROOT in report_path.parents else str(report_path),
+            "video": str(video_path.relative_to(ROOT)) if ROOT in video_path.parents else str(video_path),
         },
     }
     manifest_path = write_manifest(video_id, project)
     log("orchestra", f"manifest: {manifest_path}")
 
-    video_rel = report.get("file")
-    if not video_rel:
-        raise SystemExit("download did not produce a video path")
-    video_path = ROOT / video_rel
-
-    # ---- source_probe (hardsub) ----
+    # ---- source_probe: detect hardsub ----
     probe_path: Path | None = None
     if not args.skip_hardsub_probe:
         log("orchestra", "source_probe: hardsub detection")
@@ -158,36 +212,67 @@ def main() -> int:
             probe_path = Path(r.stdout.strip().splitlines()[-1])
         except subprocess.CalledProcessError as exc:
             log("orchestra", f"hardsub probe failed, continuing: {exc}")
-    update_manifest(manifest_path, {"current_stage": "source_probe",
-                                    "artifacts": {**project["artifacts"],
-                                                  "hardsub_probe": str(probe_path.relative_to(ROOT)) if probe_path else None}})
+    update_manifest(manifest_path, {
+        "current_stage": "source_probe",
+        "artifacts": {**project["artifacts"],
+                      "hardsub_probe": str(probe_path.relative_to(ROOT)) if probe_path else None},
+    })
 
-    # ---- subtitle_discovery + language gate ----
-    log("orchestra", "subtitle_discovery + lang-filter-gate")
-    r = run(py(str(SCRIPTS / "filter_langs.py"), str(report_path)))
-    lang_report_path = Path(r.stdout.strip().splitlines()[-1])
-    lang_report = read_json(lang_report_path)
-    chosen_track = lang_report.get("recommended_source_track")
-    if not chosen_track:
-        raise SystemExit("no allowed subtitle track remains after language filter; ASR fallback not yet implemented in MVP")
-    update_manifest(manifest_path, {"current_stage": "subtitle_discovery",
-                                    "source_language": chosen_track})
+    # ---- source_extraction: use provided --sub, else discover+pull, else ASR ----
+    src_srt: Path | None = None
+    chosen_track = args.source_lang or "auto"
 
-    # ---- source_extraction: pull the track ----
-    log("orchestra", f"source_extraction: pulling {chosen_track}")
-    src_srt = pull_subtitle(args.url, video_id, chosen_track)
-    if not src_srt or not src_srt.exists():
-        raise SystemExit(f"failed to pull subtitle track {chosen_track}")
+    if args.sub:
+        src_srt = args.sub.resolve()
+        if not src_srt.exists():
+            raise SystemExit(f"--sub not found: {src_srt}")
+        log("orchestra", f"source_extraction: reusing {src_srt}")
+    else:
+        # If we have a URL we can query yt-dlp for track availability via the
+        # existing download report; when reusing existing file, tracks are empty.
+        if not report.get("available_subtitles") and not report.get("available_auto_captions") and args.url:
+            # Re-fetch metadata only if reuse mode skipped initial listing
+            log("orchestra", "subtitle_discovery: refreshing metadata")
+            meta = fetch_remote_metadata(args.url)
+            report["available_subtitles"] = sorted((meta.get("subtitles") or {}).keys())
+            report["available_auto_captions"] = sorted((meta.get("automatic_captions") or {}).keys())
+            write_json(report_path, report)
 
-    # ---- inpaint if hardsub detected ----
+        log("orchestra", "subtitle_discovery + lang rank")
+        r = run(py(str(SCRIPTS / "filter_langs.py"), str(report_path)))
+        lang_report_path = Path(r.stdout.strip().splitlines()[-1])
+        lang_report = read_json(lang_report_path)
+        chosen_track = lang_report.get("recommended_source_track")
+
+        if chosen_track and args.url:
+            log("orchestra", f"source_extraction: pulling {chosen_track}")
+            src_srt = pull_subtitle(args.url, video_id, chosen_track)
+            if not src_srt or not src_srt.exists():
+                log("orchestra", f"track pull failed; falling back to ASR")
+                src_srt = None
+        elif chosen_track and not args.url:
+            log("orchestra", "tracks listed but no URL to pull from; falling back to ASR")
+
+        if src_srt is None:
+            log("orchestra", "source_extraction: ASR fallback (faster-whisper)")
+            r = run(py(str(SCRIPTS / "transcribe_whisper.py"), str(video_path),
+                       "--video-id", video_id, "--model", args.asr_model))
+            src_srt = Path(r.stdout.strip().splitlines()[-1])
+            chosen_track = "asr"
+
+    # ---- hardsub cleanup (opt-in) ----
     clean_video = video_path
-    if probe_path and read_json(probe_path).get("burned_in_detected"):
-        log("orchestra", "inpainting hardsub region")
+    if args.clean_hardsub and probe_path and read_json(probe_path).get("burned_in_detected"):
+        log("orchestra", "hardsub: cleaning via delogo")
         r = run(py(str(SCRIPTS / "inpaint_hardsub.py"), str(video_path),
                    "--probe", str(probe_path),
                    "--out", str(video_path.with_name(video_path.stem + ".clean.mp4"))))
         clean_video = Path(r.stdout.strip().splitlines()[-1])
-    update_manifest(manifest_path, {"current_stage": "source_extraction"})
+    else:
+        if probe_path and read_json(probe_path).get("burned_in_detected"):
+            log("orchestra", "hardsub detected but mode=keep; leaving video untouched")
+    update_manifest(manifest_path, {"current_stage": "source_extraction",
+                                    "source_language": chosen_track})
 
     # ---- translation (Claude) ----
     log("orchestra", f"translation: Claude targets={args.targets}")
@@ -200,15 +285,12 @@ def main() -> int:
         raise SystemExit(f"translation missing outputs: {translated_paths}")
     update_manifest(manifest_path, {"current_stage": "translation"})
 
-    # ---- qa (automated minimal): cue count parity ----
-    import re
-    def count_cues(p: Path) -> int:
-        return len(re.findall(r"\d{2}:\d{2}:\d{2}[,\.]\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}[,\.]\d{3}", p.read_text(encoding="utf-8")))
+    # ---- qa: cue count parity ----
     src_n = count_cues(src_srt)
     ko_n, es_n = count_cues(ko), count_cues(es)
     qa_ok = src_n == ko_n == es_n
-    update_manifest(manifest_path, {"current_stage": "qa",
-                                    "notes": [*project["notes"], f"qa cue counts src={src_n} ko={ko_n} es={es_n} ok={qa_ok}"]})
+    notes = list(project["notes"]) + [f"qa cue counts src={src_n} ko={ko_n} es={es_n} ok={qa_ok}"]
+    update_manifest(manifest_path, {"current_stage": "qa", "notes": notes})
 
     # ---- export ----
     log("orchestra", "export: packaging")
@@ -226,9 +308,13 @@ def main() -> int:
         cmd += ["--probe", str(probe_path)]
     r = run(cmd)
     package_path = Path(r.stdout.strip().splitlines()[-1])
-    update_manifest(manifest_path, {"current_stage": "export",
-                                    "status": "completed" if qa_ok else "needs_review",
-                                    "artifacts": {"package": str(package_path.relative_to(ROOT))}})
+    update_manifest(manifest_path, {
+        "current_stage": "export",
+        "status": "completed" if qa_ok else "needs_review",
+        "artifacts": {
+            "package": str(package_path.relative_to(ROOT)) if ROOT in package_path.parents else str(package_path),
+        },
+    })
     log("orchestra", f"done. package={package_path}")
     print(package_path)
     return 0

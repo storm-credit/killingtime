@@ -13,12 +13,12 @@ dynamic_hooks:
 
   - id: lang-filter-gate
     status: active
-    activation_rule: always on, enforces harness.source_exclude
+    activation_rule: always on
     owner: language-gate
     check:
-      - zh tracks removed from candidates
-      - en tracks removed from candidates
-      - remaining ranked source language logged
+      - source track chosen per source_preference
+      - delivery package excludes delivery_exclude languages
+      - chosen source language logged
 
   - id: translation-engine-gate
     status: active

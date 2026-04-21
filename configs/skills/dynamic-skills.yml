@@ -8,11 +8,17 @@ dynamic_skills:
     owner: hardsub-detector
     purpose: scan sampled frames with OCR and report burned-in subtitle region and language
 
-  - id: filter-source-languages
+  - id: rank-source-tracks
     status: active
-    activation_rule: always on, enforces harness.source_exclude
+    activation_rule: always on
     owner: language-gate
-    purpose: remove zh and en entries from subtitle candidate lists before extraction
+    purpose: rank available subtitle tracks by harness.source_preference and pick best source
+
+  - id: enforce-delivery-exclude
+    status: active
+    activation_rule: always on at export
+    owner: language-gate
+    purpose: ensure packaged subtitle set excludes delivery_exclude languages
 
   - id: inpaint-hardsub-region
     status: active

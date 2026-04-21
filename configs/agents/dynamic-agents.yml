@@ -22,10 +22,10 @@ dynamic_agents:
   - id: language-gate
     label: Language Gate
     status: active
-    activation_rule: always on, enforces source_exclude from harness
+    activation_rule: always on, ranks source tracks and enforces delivery_exclude
     ownership:
-      - drop zh and en subtitle tracks from candidate source
-      - keep non-excluded tracks ranked for source_extraction
+      - rank available subtitle tracks by harness.source_preference
+      - enforce delivery_exclude on final package subtitle list
 
   - id: claude-translator
     label: Claude Translator
