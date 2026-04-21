@@ -1,0 +1,34 @@
+version: 1
+name: killingtime-fixed-hooks
+
+fixed_hooks:
+  - id: intake
+    owner: orchestra-lead
+    check:
+      - source is explicit
+      - targets are explicit
+      - delivery format is explicit
+  - id: context
+    owner: harness-architect
+    check:
+      - existing manifests checked
+      - glossary sources checked
+      - extension registry checked
+  - id: route
+    owner: orchestra-lead
+    check:
+      - subtitle pull attempted before ASR
+      - ASR and OCR fallback decision recorded
+  - id: review
+    owner: subtitle-qa-reviewer
+    check:
+      - cue timing safe
+      - line lengths acceptable
+      - translation register appropriate
+  - id: publish
+    owner: packaging-operator
+    check:
+      - package complete
+      - notes attached
+      - manifest updated
+

@@ -1,0 +1,35 @@
+version: 1
+name: killingtime-context-broker
+state: local_fallback
+owner: harness-architect
+
+purpose:
+  - keep external context optional
+  - preserve one structure whether MCP is connected or not
+  - allow promotion when repeated knowledge lookups become operationally necessary
+
+knowledge_sources:
+  - id: manifests
+    path: outputs/manifests/
+    type: yaml
+    priority: critical
+  - id: harness_docs
+    path: harness/
+    type: markdown
+    priority: high
+  - id: config_registry
+    path: configs/
+    type: yaml
+    priority: critical
+
+promotions:
+  activate_context_broker_when:
+    - external_connectors >= 2
+    - repeated_queries_per_week >= 3
+    - glossary_sync_needed = true
+
+planned_connectors:
+  - subtitle-provider-api
+  - translation-memory-store
+  - release-library-index
+

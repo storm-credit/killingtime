@@ -1,0 +1,127 @@
+version: 1
+name: killingtime-fixed-agents
+description: Fixed roster for subtitle localization orchestration.
+
+fixed_agents:
+  - id: orchestra-lead
+    label: Orchestra Lead
+    tier: core
+    model: gpt-5.4 / high
+    ownership:
+      - intake routing
+      - priority decisions
+      - final approval
+    stages:
+      - intake
+      - export
+    tools:
+      - all coordination-safe tools
+    extension_policy: fixed
+
+  - id: harness-architect
+    label: Harness Architect
+    tier: core
+    model: gpt-5.4 / high
+    ownership:
+      - schemas
+      - config integrity
+      - stage contracts
+      - MCP fallback ownership
+    stages:
+      - intake
+      - subtitle_discovery
+      - qa
+    tools:
+      - configs
+      - docs
+      - manifests
+    extension_policy: fixed
+
+  - id: subtitle-discovery-agent
+    label: Subtitle Discovery Agent
+    tier: pipeline
+    model: gpt-5.4-mini / medium
+    ownership:
+      - list available subtitles
+      - decide retrieval-before-transcription
+    stages:
+      - subtitle_discovery
+    tools:
+      - yt-dlp
+      - manifest scanner
+    extension_policy: fixed
+
+  - id: source-extraction-lead
+    label: Source Extraction Lead
+    tier: pipeline
+    model: gpt-5.4 / high
+    ownership:
+      - choose between direct subtitle pull, ASR, or OCR
+      - emit source-language SRT
+    stages:
+      - source_extraction
+    tools:
+      - yt-dlp
+      - faster-whisper
+      - paddleocr
+      - ffmpeg
+    extension_policy: fixed
+
+  - id: translation-lead
+    label: Translation Lead
+    tier: localization
+    model: gpt-5.4 / high
+    ownership:
+      - Korean translation
+      - Spanish translation
+      - cue-preserving rewrite
+    stages:
+      - translation
+    tools:
+      - llm-subtrans
+      - qwen
+      - glossary memory
+    extension_policy: fixed
+
+  - id: subtitle-qa-reviewer
+    label: Subtitle QA Reviewer
+    tier: qa
+    model: gpt-5.4 / high
+    ownership:
+      - timing review
+      - line break review
+      - register and terminology review
+    stages:
+      - qa
+    tools:
+      - subtitle editor
+      - diff review
+      - cue metrics
+    extension_policy: fixed
+
+  - id: packaging-operator
+    label: Packaging Operator
+    tier: release
+    model: gpt-5.4-mini / medium
+    ownership:
+      - export package assembly
+      - handoff notes
+    stages:
+      - export
+    tools:
+      - file packaging
+      - manifest updater
+    extension_policy: fixed
+
+  - id: web-director
+    label: Web Director
+    tier: interface
+    model: gpt-5.4 / medium
+    ownership:
+      - dashboard information architecture
+      - local editing experience
+    stages: []
+    tools:
+      - nextjs
+      - config readers
+    extension_policy: fixed

@@ -1,0 +1,11 @@
+version: 1
+name: killingtime-dynamic-skills
+
+dynamic_skills:
+  - id: align-scene-ocr-zones
+    status: optional
+    activation_rule: enable when hardcoded subtitles are frequent or stylized
+  - id: enforce-series-termbase
+    status: optional
+    activation_rule: enable when a project becomes episodic
+

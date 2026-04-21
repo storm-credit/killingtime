@@ -1,0 +1,261 @@
+:root {
+  --bg: #f4efe6;
+  --paper: rgba(255, 252, 246, 0.78);
+  --ink: #1d1b17;
+  --muted: #5c554c;
+  --accent: #c34a36;
+  --accent-2: #1e6a63;
+  --line: rgba(29, 27, 23, 0.12);
+  --shadow: 0 24px 80px rgba(60, 42, 28, 0.12);
+  --radius: 24px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(195, 74, 54, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(30, 106, 99, 0.18), transparent 26%),
+    linear-gradient(180deg, #fbf7f0 0%, #efe5d8 100%);
+  color: var(--ink);
+  font-family: "Segoe UI Variable Text", "Pretendard Variable", "IBM Plex Sans KR", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+body {
+  padding: 24px;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  gap: 20px;
+  min-height: calc(100vh - 48px);
+}
+
+.sidebar,
+.card,
+.stat-card,
+.hero {
+  backdrop-filter: blur(18px);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.sidebar {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.brand-block h1,
+.hero h1,
+.card h2,
+.agent-card h3,
+.stage-card h3 {
+  font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  letter-spacing: -0.03em;
+}
+
+.brand-block h1 {
+  margin: 0 0 12px;
+  font-size: 2.2rem;
+}
+
+.brand-block p,
+.hero p,
+.card p,
+.stage-card p {
+  line-height: 1.65;
+}
+
+.eyebrow {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--accent-2);
+  margin-bottom: 12px;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nav-link {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  color: var(--muted);
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.nav-link:hover,
+.nav-link--active {
+  transform: translateX(2px);
+  border-color: rgba(195, 74, 54, 0.22);
+  background: rgba(195, 74, 54, 0.08);
+  color: var(--ink);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+}
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hero {
+  padding: 30px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.6rem);
+  max-width: 14ch;
+}
+
+.hero p {
+  max-width: 70ch;
+  color: var(--muted);
+}
+
+.hero--compact h1 {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+}
+
+.stat-grid,
+.grid-two,
+.roster-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.grid-two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.roster-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stat-card {
+  padding: 20px;
+}
+
+.stat-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+}
+
+.stat-label,
+.muted {
+  color: var(--muted);
+}
+
+.card {
+  padding: 24px;
+}
+
+.card h2 {
+  margin: 0 0 14px;
+  font-size: 1.7rem;
+}
+
+.card-body,
+.list-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.list-item {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.44);
+  border: 1px solid rgba(29, 27, 23, 0.08);
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(30, 106, 99, 0.09);
+  border: 1px solid rgba(30, 106, 99, 0.16);
+  color: #17463f;
+  font-size: 0.9rem;
+}
+
+.stage-rail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.stage-card {
+  position: relative;
+  padding: 20px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(29, 27, 23, 0.08);
+}
+
+.stage-card--active {
+  background: linear-gradient(145deg, rgba(195, 74, 54, 0.15), rgba(255, 255, 255, 0.58));
+  border-color: rgba(195, 74, 54, 0.28);
+}
+
+.stage-index {
+  font-size: 0.82rem;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.agent-card--dynamic {
+  border-style: dashed;
+}
+
+@media (max-width: 1100px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-grid,
+  .grid-two,
+  .roster-grid,
+  .stage-rail {
+    grid-template-columns: 1fr;
+  }
+}
