@@ -1,11 +1,38 @@
-version: 1
+version: 2
 name: killingtime-dynamic-hooks
 
 dynamic_hooks:
+  - id: hardsub-gate
+    status: active
+    activation_rule: always on for YouTube long-form intake
+    owner: hardsub-detector
+    check:
+      - hardsub probe completed
+      - region recorded if detected
+      - inpaint path chosen or skip logged
+
+  - id: lang-filter-gate
+    status: active
+    activation_rule: always on, enforces harness.source_exclude
+    owner: language-gate
+    check:
+      - zh tracks removed from candidates
+      - en tracks removed from candidates
+      - remaining ranked source language logged
+
+  - id: translation-engine-gate
+    status: active
+    activation_rule: always on when translation_engine.id is claude-api
+    owner: claude-translator
+    check:
+      - ANTHROPIC_API_KEY available
+      - model id matches translation_engine.model
+      - cue count preserved after translation
+
   - id: glossary-refresh
     status: optional
     activation_rule: enable when glossary drift appears across projects
+
   - id: platform-export-map
     status: optional
     activation_rule: enable when multiple downstream delivery formats are required
-

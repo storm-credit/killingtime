@@ -11,6 +11,21 @@ export type HarnessConfig = {
     output: string;
     success_definition: string;
   }>;
+  targets?: string[];
+  source_exclude?: string[];
+  download?: {
+    container: string;
+    video_codec: string;
+    audio_codec: string;
+    format_expression: string;
+    merge_output_format: string;
+  };
+  translation_engine?: {
+    id: string;
+    model: string;
+    style: string;
+    preserve_cues: boolean;
+  };
 };
 
 export type FixedAgentFile = {
@@ -46,6 +61,8 @@ export type SkillFile = {
     id: string;
     status: string;
     activation_rule: string;
+    owner?: string;
+    purpose?: string;
   }>;
 };
 
@@ -59,6 +76,8 @@ export type HookFile = {
     id: string;
     status: string;
     activation_rule: string;
+    owner?: string;
+    check?: string[];
   }>;
 };
 

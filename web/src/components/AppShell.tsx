@@ -9,6 +9,7 @@ const navItems = [
   { href: "/orchestra", label: "Orchestra" },
   { href: "/harness", label: "Harness" },
   { href: "/registry", label: "Registry" },
+  { href: "/projects", label: "Projects" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {

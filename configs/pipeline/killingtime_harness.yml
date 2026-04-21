@@ -1,4 +1,4 @@
-version: 1
+version: 2
 name: killingtime-subtitle-harness
 domain: media-localization
 principle: fixed-core-extendable-edge
@@ -8,15 +8,25 @@ targets:
   - ko
   - es
 
+source_exclude:
+  - zh
+  - zh-Hans
+  - zh-Hant
+  - en
+
 hooks:
   - intake
   - context
   - route
+  - hardsub-gate
+  - lang-filter-gate
+  - translation-engine-gate
   - review
   - publish
 
 stage_order:
   - intake
+  - source_probe
   - subtitle_discovery
   - source_extraction
   - translation
@@ -27,19 +37,23 @@ stages:
   - id: intake
     owner: orchestra-lead
     output: normalized-task-brief
-    success_definition: request has source, targets, constraints, and delivery expectations
+    success_definition: request has source url, targets, constraints, and delivery expectations
+  - id: source_probe
+    owner: hardsub-detector
+    output: source-probe-report
+    success_definition: hardsub presence and available subtitle tracks are recorded with confidence
   - id: subtitle_discovery
     owner: subtitle-discovery-agent
     output: subtitle-availability-report
-    success_definition: existing subs are confirmed or missing-state is explicit
+    success_definition: existing subs are confirmed or missing-state is explicit after zh/en filter
   - id: source_extraction
     owner: source-extraction-lead
     output: source-srt
-    success_definition: source language subtitle file exists with cue timings
+    success_definition: source language subtitle file exists with cue timings and hardsub region cleared if present
   - id: translation
-    owner: translation-lead
+    owner: claude-translator
     output: ko-es-localization-drafts
-    success_definition: target drafts preserve cue structure and glossary policy
+    success_definition: target drafts preserve cue structure and read naturally in ko and es
   - id: qa
     owner: subtitle-qa-reviewer
     output: approved-or-rework-decision
@@ -47,9 +61,27 @@ stages:
   - id: export
     owner: packaging-operator
     output: export-package
-    success_definition: final assets and notes are assembled for delivery
+    success_definition: final mp4, ko.srt, es.srt and upload guide are assembled
+
+download:
+  container: mp4
+  video_codec: h264
+  audio_codec: aac
+  format_expression: "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
+  merge_output_format: mp4
+
+translation_engine:
+  id: claude-api
+  model: claude-sonnet-4-6
+  style: natural-spoken
+  preserve_cues: true
 
 fallbacks:
+  source_probe:
+    preferred:
+      - ocr_sample_scan
+    fallback:
+      - skip_hardsub_check
   subtitle_discovery:
     preferred:
       - platform_subtitles
@@ -64,10 +96,14 @@ fallbacks:
     fallback:
       - faster_whisper
       - paddle_ocr
+  hardsub_cleanup:
+    preferred:
+      - masked_region_inpaint
+    fallback:
+      - keep_and_overlay
 
 extension_points:
   agents: configs/agents/dynamic-agents.yml
   skills: configs/skills/dynamic-skills.yml
   hooks: configs/hooks/dynamic-hooks.yml
   mcp: configs/mcp/context-broker.yml
-

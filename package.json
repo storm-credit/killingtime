@@ -7,6 +7,11 @@
   ],
   "scripts": {
     "dev:web": "npm run dev --workspace web",
-    "build:web": "npm run build --workspace web"
+    "build:web": "npm run build --workspace web",
+    "orchestra": "python scripts/orchestra_run.py",
+    "orchestra:plan": "python scripts/orchestra_run.py --dry-run",
+    "pipeline:download": "python scripts/download_best.py",
+    "pipeline:probe": "python scripts/detect_hardsub.py",
+    "pipeline:translate": "python scripts/translate_claude.py"
   }
 }

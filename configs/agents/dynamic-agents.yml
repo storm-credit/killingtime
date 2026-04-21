@@ -1,8 +1,49 @@
-version: 1
+version: 2
 name: killingtime-dynamic-agents
 description: Add optional specialists here without editing the fixed roster.
 
 dynamic_agents:
+  - id: hardsub-detector
+    label: Hardsub Detector
+    status: active
+    activation_rule: always on for YouTube long-form intake
+    ownership:
+      - probe for burned-in subtitles in source video
+      - estimate subtitle region and language confidence
+
+  - id: hardsub-inpainter
+    label: Hardsub Inpainter
+    status: active
+    activation_rule: activate when hardsub-detector reports burned-in zh or en subs
+    ownership:
+      - mask burned-in subtitle region
+      - inpaint or crop to produce clean video
+
+  - id: language-gate
+    label: Language Gate
+    status: active
+    activation_rule: always on, enforces source_exclude from harness
+    ownership:
+      - drop zh and en subtitle tracks from candidate source
+      - keep non-excluded tracks ranked for source_extraction
+
+  - id: claude-translator
+    label: Claude Translator
+    status: active
+    activation_rule: always on when translation_engine.id is claude-api
+    ownership:
+      - translate source srt into ko with natural spoken register
+      - translate source srt into es with natural spoken register
+      - preserve cue indices and timings
+
+  - id: upload-guide-writer
+    label: Upload Guide Writer
+    status: active
+    activation_rule: run at export when delivery scope is local with manual upload
+    ownership:
+      - compose human-readable YouTube upload guide
+      - attach sidecar srt usage notes
+
   - id: termbase-manager
     label: Termbase Manager
     status: proposed
@@ -18,4 +59,3 @@ dynamic_agents:
     ownership:
       - dubbing line compression
       - lip-sync aware rewrite
-
