@@ -1,0 +1,11 @@
+version: 1
+name: killingtime-dynamic-hooks
+
+dynamic_hooks:
+  - id: glossary-refresh
+    status: optional
+    activation_rule: enable when glossary drift appears across projects
+  - id: platform-export-map
+    status: optional
+    activation_rule: enable when multiple downstream delivery formats are required
+

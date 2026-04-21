@@ -1,0 +1,73 @@
+version: 1
+name: killingtime-subtitle-harness
+domain: media-localization
+principle: fixed-core-extendable-edge
+mode: subtitle-first
+
+targets:
+  - ko
+  - es
+
+hooks:
+  - intake
+  - context
+  - route
+  - review
+  - publish
+
+stage_order:
+  - intake
+  - subtitle_discovery
+  - source_extraction
+  - translation
+  - qa
+  - export
+
+stages:
+  - id: intake
+    owner: orchestra-lead
+    output: normalized-task-brief
+    success_definition: request has source, targets, constraints, and delivery expectations
+  - id: subtitle_discovery
+    owner: subtitle-discovery-agent
+    output: subtitle-availability-report
+    success_definition: existing subs are confirmed or missing-state is explicit
+  - id: source_extraction
+    owner: source-extraction-lead
+    output: source-srt
+    success_definition: source language subtitle file exists with cue timings
+  - id: translation
+    owner: translation-lead
+    output: ko-es-localization-drafts
+    success_definition: target drafts preserve cue structure and glossary policy
+  - id: qa
+    owner: subtitle-qa-reviewer
+    output: approved-or-rework-decision
+    success_definition: timing, readability, and terminology checks are passed
+  - id: export
+    owner: packaging-operator
+    output: export-package
+    success_definition: final assets and notes are assembled for delivery
+
+fallbacks:
+  subtitle_discovery:
+    preferred:
+      - platform_subtitles
+      - embedded_subtitles
+    fallback:
+      - asr
+      - ocr
+  source_extraction:
+    preferred:
+      - yt_dlp_subtitles
+      - source_vtt_to_srt
+    fallback:
+      - faster_whisper
+      - paddle_ocr
+
+extension_points:
+  agents: configs/agents/dynamic-agents.yml
+  skills: configs/skills/dynamic-skills.yml
+  hooks: configs/hooks/dynamic-hooks.yml
+  mcp: configs/mcp/context-broker.yml
+

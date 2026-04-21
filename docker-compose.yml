@@ -1,0 +1,15 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "3201:3201"
+    volumes:
+      - .:/workspace
+      - web_node_modules:/workspace/node_modules
+    working_dir: /workspace
+    command: sh -lc "npm install && npm run dev:web"
+
+volumes:
+  web_node_modules:

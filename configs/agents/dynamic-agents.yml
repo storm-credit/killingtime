@@ -1,0 +1,21 @@
+version: 1
+name: killingtime-dynamic-agents
+description: Add optional specialists here without editing the fixed roster.
+
+dynamic_agents:
+  - id: termbase-manager
+    label: Termbase Manager
+    status: proposed
+    activation_rule: promote when 3 or more projects reuse the same named entities
+    ownership:
+      - glossary locking
+      - cross-episode terminology
+
+  - id: dubbing-adapter
+    label: Dubbing Adapter
+    status: proposed
+    activation_rule: activate when subtitle work expands into TTS or voice dubbing
+    ownership:
+      - dubbing line compression
+      - lip-sync aware rewrite
+

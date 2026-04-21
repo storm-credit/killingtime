@@ -1,0 +1,20 @@
+version: 1
+name: killingtime-fixed-skills
+
+fixed_skills:
+  - id: retrieve-platform-subs
+    owner: subtitle-discovery-agent
+    purpose: download or confirm platform subtitle availability before heavier processing
+  - id: generate-source-srt
+    owner: source-extraction-lead
+    purpose: create source subtitle file through direct extraction, ASR, or OCR
+  - id: translate-preserve-cues
+    owner: translation-lead
+    purpose: translate subtitle text while preserving cue segmentation and timing
+  - id: review-subtitle-readability
+    owner: subtitle-qa-reviewer
+    purpose: check line length, natural phrasing, and display comfort
+  - id: package-export-bundle
+    owner: packaging-operator
+    purpose: assemble approved SRT outputs and operator notes
+
