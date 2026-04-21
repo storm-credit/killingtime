@@ -22,6 +22,13 @@ function thumbUrl(sourceUrl: string): string | null {
   return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
 
+function shortTitle(full: string, id: string, cap = 38): string {
+  if (!full || full === id) return id;
+  const clean = full.trim().split("\n")[0];
+  if (clean.length <= cap) return clean;
+  return clean.slice(0, cap).replace(/[,，、、／/|•·\s]+$/, "") + "…";
+}
+
 function statusChipClass(status: string): string {
   if (status === "completed") return "chip chip--success";
   if (status === "queued") return "chip chip--muted";
@@ -180,7 +187,7 @@ export function IntakeLanding({ recent }: { recent: Project[] }) {
                     style={thumb ? { backgroundImage: `url(${thumb})` } : undefined}
                   />
                   <div className="job-body">
-                    <h3>{p.title}</h3>
+                    <h3 title={p.title}>{shortTitle(p.title, p.id)}</h3>
                     <p className="job-meta">{p.id}</p>
                     <div className="chip-row">
                       <span className={statusChipClass(p.status)}>{statusLabel(p.status)}</span>

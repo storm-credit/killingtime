@@ -7,6 +7,13 @@ function thumbUrl(sourceUrl: string, id: string): string | null {
   return vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : null;
 }
 
+function shortTitle(full: string, id: string, cap = 40): string {
+  if (!full || full === id) return id;
+  const clean = full.trim().split("\n")[0];
+  if (clean.length <= cap) return clean;
+  return clean.slice(0, cap).replace(/[,，、、／/|•·\s]+$/, "") + "…";
+}
+
 function statusChip(status: string): { label: string; className: string } {
   switch (status) {
     case "completed": return { label: "완료", className: "chip chip--success" };
@@ -28,7 +35,7 @@ function JobCard({ p }: { p: Project }) {
         style={thumb ? { backgroundImage: `url(${thumb})` } : undefined}
       />
       <div className="job-body">
-        <h3>{p.title}</h3>
+        <h3 title={p.title}>{shortTitle(p.title, p.id)}</h3>
         <p className="job-meta">{p.id}</p>
         <div className="chip-row">
           <span className={s.className}>{s.label}</span>

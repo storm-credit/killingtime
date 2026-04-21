@@ -23,6 +23,47 @@ type ApiResponse = {
   log_tail: string;
 };
 
+const STAGE_ETA_MIN: Record<string, number> = {
+  intake: 3,
+  source_probe: 1,
+  subtitle_discovery: 1,
+  source_extraction: 20, // ASR heavy; track pull is ~30s
+  translation: 25,
+  qa: 1,
+  export: 10, // ffmpeg render
+};
+
+const STAGE_LABELS: Record<string, { label: string; desc: string }> = {
+  intake: {
+    label: "인테이크",
+    desc: "URL과 대상 언어, 옵션을 정리해 파이프라인에 넘깁니다.",
+  },
+  source_probe: {
+    label: "소스 감지",
+    desc: "영상에 박힌 중/영 하드섭 여부와 자막 트랙 유무를 확인합니다.",
+  },
+  subtitle_discovery: {
+    label: "자막 탐색",
+    desc: "사용할 수 있는 자막 트랙을 정리하고 번역 소스를 정합니다.",
+  },
+  source_extraction: {
+    label: "자막 추출",
+    desc: "zh 트랙을 받거나(없으면 ASR) 원문 SRT를 만듭니다.",
+  },
+  translation: {
+    label: "번역",
+    desc: "Vertex/Claude/Gemini 중 선택한 엔진으로 한국어 자막을 만듭니다.",
+  },
+  qa: {
+    label: "검수",
+    desc: "큐 수와 타이밍이 원본과 맞는지, 어색한 번역이 없는지 점검합니다.",
+  },
+  export: {
+    label: "패키징",
+    desc: "MP4 · SRT · 업로드 가이드를 한 폴더로 묶어 완성합니다.",
+  },
+};
+
 function StageTimeline({
   stages,
   current,
@@ -34,15 +75,6 @@ function StageTimeline({
 }) {
   const idx = stages.findIndex((s) => s.id === current);
   const done = status === "completed";
-  const labels: Record<string, string> = {
-    intake: "인테이크",
-    source_probe: "소스 감지",
-    subtitle_discovery: "자막 탐색",
-    source_extraction: "자막 추출",
-    translation: "번역",
-    qa: "검수",
-    export: "패키징",
-  };
 
   return (
     <div className="timeline">
@@ -56,18 +88,124 @@ function StageTimeline({
         ]
           .filter(Boolean)
           .join(" ");
+        const l = STAGE_LABELS[s.id] || { label: s.id, desc: s.success_definition };
         return (
           <div key={s.id} className={cls}>
             <div className="timeline-dot">{complete ? "✓" : i + 1}</div>
             <div className="timeline-label">
-              <h4>{labels[s.id] || s.id}</h4>
-              <p>{s.success_definition}</p>
+              <h4>{l.label}</h4>
+              <p>{l.desc}</p>
             </div>
           </div>
         );
       })}
     </div>
   );
+}
+
+function parseStartTime(notes: string[] = []): number | null {
+  for (const n of notes) {
+    const m = n.match(/started\s+(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})/);
+    if (m) {
+      const iso = m[1].replace(" ", "T");
+      const t = new Date(iso).getTime();
+      if (Number.isFinite(t)) return t;
+    }
+  }
+  return null;
+}
+
+function fmtDuration(sec: number): string {
+  if (sec < 0) sec = 0;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}시간 ${m}분`;
+  if (m > 0) return `${m}분 ${s}초`;
+  return `${s}초`;
+}
+
+function ProgressPanel({
+  stages,
+  current,
+  status,
+  startedAt,
+}: {
+  stages: Stage[];
+  current: string;
+  status: string;
+  startedAt: number | null;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (status === "completed") return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [status]);
+
+  const idx = Math.max(0, stages.findIndex((s) => s.id === current));
+  const done = status === "completed";
+  const total = stages.length;
+  const progressPct = done
+    ? 100
+    : Math.round(((idx + 0.5) / total) * 100);
+
+  const remainingMin = done
+    ? 0
+    : stages
+        .slice(idx)
+        .reduce((sum, s) => sum + (STAGE_ETA_MIN[s.id] ?? 5), 0);
+
+  const elapsedSec = startedAt ? Math.max(0, (now - startedAt) / 1000) : 0;
+
+  const currentLabel = STAGE_LABELS[current]?.label ?? current;
+
+  return (
+    <div className="progress-panel">
+      <div className="progress-panel-head">
+        <div>
+          <div className="eyebrow">Progress</div>
+          <h3 className="h3-card" style={{ margin: "4px 0 0", fontSize: "1.25rem" }}>
+            {done ? "✓ 모든 단계 완료" : `${currentLabel} 진행 중`}
+          </h3>
+        </div>
+        <div className="progress-stats">
+          <div>
+            <div className="stat-mini-value">{progressPct}%</div>
+            <div className="stat-mini-label">{idx + (done ? 0 : 1)} / {total}</div>
+          </div>
+          {startedAt ? (
+            <div>
+              <div className="stat-mini-value">{fmtDuration(elapsedSec)}</div>
+              <div className="stat-mini-label">경과</div>
+            </div>
+          ) : null}
+          {!done ? (
+            <div>
+              <div className="stat-mini-value">~{remainingMin}분</div>
+              <div className="stat-mini-label">남음 (예상)</div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className="progress-bar-track">
+        <div
+          className={`progress-bar-fill ${done ? "progress-bar-fill--done" : ""}`}
+          style={{ width: `${progressPct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function shortTitle(full: string, id: string): { display: string; sub: string | null } {
+  if (!full || full === id) return { display: id, sub: null };
+  const CAP = 48;
+  const trimmed = full.trim();
+  if (trimmed.length <= CAP) return { display: trimmed, sub: null };
+  const clean = trimmed.split("\n")[0];
+  const cut = clean.slice(0, CAP).replace(/[,，、、／/|•·\s]+$/, "");
+  return { display: cut + "…", sub: clean };
 }
 
 function statusChip(status: string, current: string): { label: string; className: string } {
@@ -163,13 +301,21 @@ export function ProjectDetail({ id, stages }: { id: string; stages: Stage[] }) {
   const thumb = thumbUrl(p.id);
   const done = p.status === "completed";
 
+  const title = shortTitle(p.title, p.id);
+  const startedAt = parseStartTime(p.notes);
+
   return (
     <div className="page-stack">
       <section className="hero">
         <div className="eyebrow">Job · {p.id}</div>
-        <h1>{p.title}</h1>
+        <h1 title={title.sub ?? undefined}>{title.display}</h1>
+        {title.sub ? (
+          <p className="muted" style={{ marginTop: 8, fontSize: "0.92rem", lineHeight: 1.5 }}>
+            {title.sub}
+          </p>
+        ) : null}
         {p.source_url && p.source_url !== "(local)" ? (
-          <p className="muted" style={{ wordBreak: "break-all", fontFamily: "var(--font-mono)", fontSize: "0.86rem" }}>
+          <p className="muted" style={{ wordBreak: "break-all", fontFamily: "var(--font-mono)", fontSize: "0.82rem", marginTop: 10 }}>
             <a href={p.source_url} target="_blank" rel="noreferrer">{p.source_url}</a>
           </p>
         ) : null}
@@ -181,6 +327,13 @@ export function ProjectDetail({ id, stages }: { id: string; stages: Stage[] }) {
           <span className="chip chip--accent">→ {p.targets.join(", ").toUpperCase()}</span>
         </div>
       </section>
+
+      <ProgressPanel
+        stages={stages}
+        current={p.current_stage}
+        status={p.status}
+        startedAt={startedAt}
+      />
 
       <div className="grid-two">
         <div className="card">
