@@ -204,6 +204,7 @@ def call_google(provider: dict, target: str, cues: list[Cue]) -> str:
 
 
 def call_vertex(provider: dict, target: str, cues: list[Cue]) -> str:
+    import time
     key_path = os.getenv(provider.get("env_key", "GOOGLE_APPLICATION_CREDENTIALS"))
     if not key_path:
         raise SystemExit(f"{provider.get('env_key')} not set")
@@ -216,11 +217,26 @@ def call_vertex(provider: dict, target: str, cues: list[Cue]) -> str:
         raise SystemExit("google-cloud-aiplatform not installed. pip install google-cloud-aiplatform") from exc
     vertexai.init(project=provider["project"], location=provider.get("location", "us-central1"))
     model = GenerativeModel(provider["model"], system_instruction=SYSTEM_PROMPT)
-    resp = model.generate_content(
-        build_user_text(target, cues),
-        generation_config=GenerationConfig(temperature=0.2, max_output_tokens=8192),
-    )
-    return (resp.text or "").strip()
+    prompt = build_user_text(target, cues)
+    config = GenerationConfig(temperature=0.2, max_output_tokens=8192)
+
+    # Exponential backoff for 429 Resource Exhausted and other transient errors.
+    max_attempts = 6
+    delay = 10.0
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = model.generate_content(prompt, generation_config=config)
+            return (resp.text or "").strip()
+        except Exception as exc:
+            msg = str(exc)
+            is_quota = "RESOURCE_EXHAUSTED" in msg or "429" in msg or "quota" in msg.lower()
+            is_retry = is_quota or "503" in msg or "UNAVAILABLE" in msg or "DEADLINE_EXCEEDED" in msg
+            if attempt >= max_attempts or not is_retry:
+                raise
+            log("translate", f"vertex attempt {attempt} hit {('quota' if is_quota else 'transient error')}; sleeping {delay:.0f}s")
+            time.sleep(delay)
+            delay = min(delay * 2, 180)
+    raise RuntimeError("unreachable")
 
 
 def call_openai(provider: dict, target: str, cues: list[Cue]) -> str:
