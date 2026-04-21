@@ -26,11 +26,11 @@ dynamic_skills:
     owner: hardsub-inpainter
     purpose: mask and clean the burned-in subtitle region using ffmpeg filters or opencv inpaint
 
-  - id: claude-translate-natural
+  - id: llm-translate-natural
     status: active
-    activation_rule: always on when translation_engine.id is claude-api
-    owner: claude-translator
-    purpose: translate source srt into ko and es preserving cue structure with natural register
+    activation_rule: always on
+    owner: llm-translator
+    purpose: translate source srt into ko and es preserving cue structure with natural register; provider pluggable
 
   - id: compose-upload-guide
     status: active

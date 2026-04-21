@@ -85,10 +85,26 @@ download:
   merge_output_format: mp4
 
 translation_engine:
-  id: claude-api
-  model: claude-sonnet-4-6
+  default: local
   style: natural-spoken
   preserve_cues: true
+  providers:
+    local:
+      runtime: ollama
+      base_url: http://localhost:11434
+      model: qwen2.5:7b
+    claude:
+      runtime: anthropic
+      model: claude-sonnet-4-6
+      env_key: ANTHROPIC_API_KEY
+    gemini:
+      runtime: google
+      model: gemini-2.0-flash
+      env_key: GEMINI_API_KEY
+    gpt:
+      runtime: openai
+      model: gpt-4o-mini
+      env_key: OPENAI_API_KEY
 
 fallbacks:
   source_probe:

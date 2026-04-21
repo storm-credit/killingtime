@@ -1,7 +1,17 @@
+# Core (required)
 yt-dlp>=2024.10.7
-anthropic>=0.40.0
 PyYAML>=6.0
+
+# Media / OCR (required for hardsub probe + inpaint)
+Pillow>=10.0.0
 paddleocr>=2.7.0
 paddlepaddle>=2.6.0
-Pillow>=10.0.0
+
+# ASR fallback (required when no subtitle tracks exist)
 faster-whisper>=1.0.0
+
+# Translation engine adapters — install only what you use
+# local (ollama)     -- no extra packages, ollama daemon required
+# claude             : pip install anthropic
+# gemini             : pip install google-generativeai
+# gpt                : pip install openai

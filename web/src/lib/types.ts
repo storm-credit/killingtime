@@ -26,10 +26,18 @@ export type HarnessConfig = {
     merge_output_format: string;
   };
   translation_engine?: {
-    id: string;
-    model: string;
-    style: string;
-    preserve_cues: boolean;
+    default: string;
+    style?: string;
+    preserve_cues?: boolean;
+    providers: Record<
+      string,
+      {
+        runtime: string;
+        model: string;
+        base_url?: string;
+        env_key?: string;
+      }
+    >;
   };
 };
 

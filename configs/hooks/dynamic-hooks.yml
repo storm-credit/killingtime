@@ -22,11 +22,12 @@ dynamic_hooks:
 
   - id: translation-engine-gate
     status: active
-    activation_rule: always on when translation_engine.id is claude-api
-    owner: claude-translator
+    activation_rule: always on
+    owner: llm-translator
     check:
-      - ANTHROPIC_API_KEY available
-      - model id matches translation_engine.model
+      - selected provider resolvable in translation_engine.providers
+      - required env_key present for paid providers (claude/gemini/gpt)
+      - local runtime reachable at base_url for ollama
       - cue count preserved after translation
 
   - id: glossary-refresh

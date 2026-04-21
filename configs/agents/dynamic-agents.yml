@@ -27,14 +27,15 @@ dynamic_agents:
       - rank available subtitle tracks by harness.source_preference
       - enforce delivery_exclude on final package subtitle list
 
-  - id: claude-translator
-    label: Claude Translator
+  - id: llm-translator
+    label: LLM Translator
     status: active
-    activation_rule: always on when translation_engine.id is claude-api
+    activation_rule: always on; provider selected per harness.translation_engine.default
     ownership:
       - translate source srt into ko with natural spoken register
       - translate source srt into es with natural spoken register
       - preserve cue indices and timings
+      - dispatch across local/claude/gemini/gpt runtimes
 
   - id: upload-guide-writer
     label: Upload Guide Writer

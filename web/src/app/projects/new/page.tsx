@@ -13,6 +13,7 @@ export default function NewProjectPage() {
   const [cleanHardsub, setCleanHardsub] = useState(false);
   const [skipProbe, setSkipProbe] = useState(false);
   const [asrModel, setAsrModel] = useState("small");
+  const [engine, setEngine] = useState<"local" | "claude" | "gemini" | "gpt">("local");
 
   const command = useMemo(() => {
     const parts: string[] = ["npm run orchestra --"];
@@ -28,11 +29,19 @@ export default function NewProjectPage() {
     }
     const t = [targets.ko ? "ko" : "", targets.es ? "es" : ""].filter(Boolean).join(" ") || "ko es";
     parts.push(`--targets ${t}`);
+    if (engine !== "local") parts.push(`--engine ${engine}`);
     if (cleanHardsub) parts.push("--clean-hardsub");
     if (skipProbe) parts.push("--skip-hardsub-probe");
     if (!existingSub && asrModel !== "small") parts.push(`--asr-model ${asrModel}`);
     return parts.join(" ");
-  }, [url, existingPath, existingSub, videoId, sourceLang, targets, cleanHardsub, skipProbe, asrModel]);
+  }, [url, existingPath, existingSub, videoId, sourceLang, targets, cleanHardsub, skipProbe, asrModel, engine]);
+
+  const engineHint: Record<typeof engine, string> = {
+    local: "Ollama 데몬이 localhost:11434 에서 돌고 있어야 합니다. `ollama pull qwen2.5:7b`",
+    claude: "ANTHROPIC_API_KEY 필요. `pip install anthropic`",
+    gemini: "GEMINI_API_KEY 필요. `pip install google-generativeai`",
+    gpt: "OPENAI_API_KEY 필요. `pip install openai`",
+  };
 
   return (
     <div className="page-stack">
@@ -130,8 +139,26 @@ export default function NewProjectPage() {
         </select>
       </InfoCard>
 
-      <InfoCard title="6. Run" eyebrow="CLI">
-        <p className="muted">터미널에 복사해 실행. ANTHROPIC_API_KEY가 .env에 있어야 합니다.</p>
+      <InfoCard title="6. Translation Engine" eyebrow="로컬 기본">
+        <div className="chip-row">
+          {(["local", "claude", "gemini", "gpt"] as const).map((e) => (
+            <label key={e} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <input
+                type="radio"
+                name="engine"
+                value={e}
+                checked={engine === e}
+                onChange={() => setEngine(e)}
+              />
+              {e === "local" ? "Local (Ollama, 무료)" : e === "claude" ? "Claude" : e === "gemini" ? "Gemini" : "GPT"}
+            </label>
+          ))}
+        </div>
+        <p className="muted" style={{ marginTop: 8 }}>{engineHint[engine]}</p>
+      </InfoCard>
+
+      <InfoCard title="7. Run" eyebrow="CLI">
+        <p className="muted">터미널에 복사해 실행하세요.</p>
         <pre style={{ background: "#0b0b0d", color: "#eae6df", padding: 12, borderRadius: 8, overflowX: "auto" }}>
           <code>{command}</code>
         </pre>

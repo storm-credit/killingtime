@@ -12,6 +12,6 @@
     "orchestra:plan": "python scripts/orchestra_run.py --dry-run",
     "pipeline:download": "python scripts/download_best.py",
     "pipeline:probe": "python scripts/detect_hardsub.py",
-    "pipeline:translate": "python scripts/translate_claude.py"
+    "pipeline:translate": "python scripts/translate.py"
   }
 }

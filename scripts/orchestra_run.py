@@ -130,6 +130,8 @@ def parse_args() -> argparse.Namespace:
                     help="Apply ffmpeg delogo to remove burned-in subtitles (may blur the region)")
     ap.add_argument("--skip-hardsub-probe", action="store_true")
     ap.add_argument("--asr-model", default="small", help="faster-whisper model size")
+    ap.add_argument("--engine", default=None,
+                    help="translation engine: local | claude | gemini | gpt (default from harness)")
     ap.add_argument("--dry-run", action="store_true")
     return ap.parse_args()
 
@@ -144,6 +146,11 @@ def main() -> int:
     ensure_dirs()
     harness = load_harness()
 
+    engine_id = args.engine or (harness.get("translation_engine") or {}).get("default", "local")
+    providers = (harness.get("translation_engine") or {}).get("providers") or {}
+    if engine_id not in providers and not args.dry_run:
+        raise SystemExit(f"engine '{engine_id}' not in harness.translation_engine.providers: {list(providers)}")
+
     if args.dry_run:
         plan = {
             "url": args.url,
@@ -154,7 +161,8 @@ def main() -> int:
             "delivery_exclude": harness.get("delivery_exclude", []),
             "source_preference": harness.get("source_preference", []),
             "hardsub_mode": "clean" if args.clean_hardsub else harness.get("hardsub", {}).get("default_mode", "keep"),
-            "engine": harness.get("translation_engine", {}),
+            "engine_selected": engine_id,
+            "provider": providers.get(engine_id),
         }
         print(json.dumps(plan, indent=2, ensure_ascii=False))
         return 0
@@ -274,10 +282,11 @@ def main() -> int:
     update_manifest(manifest_path, {"current_stage": "source_extraction",
                                     "source_language": chosen_track})
 
-    # ---- translation (Claude) ----
-    log("orchestra", f"translation: Claude targets={args.targets}")
-    r = run(py(str(SCRIPTS / "translate_claude.py"), str(src_srt),
-               "--video-id", video_id, "--targets", *args.targets))
+    # ---- translation ----
+    log("orchestra", f"translation: engine={engine_id} targets={args.targets}")
+    r = run(py(str(SCRIPTS / "translate.py"), str(src_srt),
+               "--video-id", video_id, "--targets", *args.targets,
+               "--engine", engine_id))
     translated_paths = [Path(p) for p in r.stdout.strip().splitlines() if p.strip()]
     ko = next((p for p in translated_paths if p.name.endswith(".ko.srt")), None)
     es = next((p for p in translated_paths if p.name.endswith(".es.srt")), None)
@@ -294,7 +303,7 @@ def main() -> int:
 
     # ---- export ----
     log("orchestra", "export: packaging")
-    engine = harness.get("translation_engine") or {}
+    provider = providers.get(engine_id) or {}
     cmd = py(str(SCRIPTS / "package_export.py"),
              "--video-id", video_id,
              "--video", str(clean_video),
@@ -302,8 +311,8 @@ def main() -> int:
              "--es-srt", str(es),
              "--download-report", str(report_path),
              "--source-lang", chosen_track,
-             "--engine", engine.get("id", "claude-api"),
-             "--model", engine.get("model", "claude-sonnet-4-6"))
+             "--engine", engine_id,
+             "--model", provider.get("model", ""))
     if probe_path:
         cmd += ["--probe", str(probe_path)]
     r = run(cmd)
