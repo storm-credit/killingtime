@@ -44,9 +44,39 @@ export function loadDashboardData(): DashboardData {
   const mcp = readYaml<McpConfig>(
     path.join(repoRoot, "configs", "mcp", "context-broker.yml")
   );
-  const manifest = readYaml<ProjectManifest>(
-    path.join(repoRoot, "outputs", "manifests", "demo-series.yml")
-  );
+
+  const manifestsDir = path.join(repoRoot, "outputs", "manifests");
+  let manifestProject: ProjectManifest["project"] = {
+    id: "no-project",
+    title: "아직 등록된 프로젝트가 없습니다",
+    source_url: "",
+    source_language: "—",
+    targets: ["ko"],
+    current_stage: "intake",
+    preferred_path: "track_subtitles",
+    fallback_path: ["asr_whisper"],
+    status: "empty",
+    notes: ["/projects/new 에서 URL을 넣어 시작하세요"],
+  };
+
+  if (fs.existsSync(manifestsDir)) {
+    const files = fs
+      .readdirSync(manifestsDir)
+      .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
+      .sort((a, b) => {
+        const at = fs.statSync(path.join(manifestsDir, a)).mtimeMs;
+        const bt = fs.statSync(path.join(manifestsDir, b)).mtimeMs;
+        return bt - at;
+      });
+    if (files.length > 0) {
+      try {
+        const m = readYaml<ProjectManifest>(path.join(manifestsDir, files[0]));
+        if (m?.project) manifestProject = m.project;
+      } catch {
+        /* keep placeholder */
+      }
+    }
+  }
 
   return {
     harness,
@@ -57,6 +87,6 @@ export function loadDashboardData(): DashboardData {
     fixedHooks: fixedHookFile.fixed_hooks ?? [],
     dynamicHooks: dynamicHookFile.dynamic_hooks ?? [],
     mcp,
-    manifest: manifest.project,
+    manifest: manifestProject,
   };
 }

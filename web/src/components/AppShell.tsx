@@ -5,40 +5,47 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 const navItems = [
-  { href: "/", label: "Overview" },
-  { href: "/orchestra", label: "Orchestra" },
-  { href: "/harness", label: "Harness" },
-  { href: "/registry", label: "Registry" },
-  { href: "/projects", label: "Projects" },
+  { href: "/", label: "홈" },
+  { href: "/projects", label: "라이브러리" },
+  { href: "/admin", label: "관리" },
 ];
+
+function isActive(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname.startsWith(href);
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <div className="brand-block">
-          <div className="eyebrow">Orchestra-First Subtitle Lab</div>
-          <h1>Killing Time</h1>
-          <p>
-            중국어 원문 자막 확보부터 한국어·스페인어 패키징까지, 오케스트라가 하네스를
-            총괄하는 로컬 워크스페이스입니다.
-          </p>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <Link href="/" className="brand-mark">
+            <span className="logo-dot" />
+            <span>
+              <span className="brand-name">Killing Time</span>{" "}
+              <span className="brand-sub">Studio</span>
+            </span>
+          </Link>
+          <nav className="nav-primary">
+            {navItems.map((item) => {
+              const active = isActive(pathname, item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={active ? "nav-link nav-link--active" : "nav-link"}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
-        <nav className="nav">
-          {navItems.map((item) => {
-            const active = pathname === item.href;
-            return (
-              <Link key={item.href} href={item.href} className={active ? "nav-link nav-link--active" : "nav-link"}>
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-      </aside>
+      </header>
       <main className="main">{children}</main>
     </div>
   );
 }
-
