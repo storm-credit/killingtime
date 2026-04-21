@@ -8,6 +8,21 @@ const repoRoot = path.resolve(process.cwd(), "..");
 const scriptsDir = path.join(repoRoot, "scripts");
 const manifestDir = path.join(repoRoot, "outputs", "manifests");
 
+function hasRunningJob(): string | null {
+  if (!fs.existsSync(manifestDir)) return null;
+  const files = fs.readdirSync(manifestDir).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
+  for (const f of files) {
+    try {
+      const raw = fs.readFileSync(path.join(manifestDir, f), "utf8");
+      const parsed = yaml.load(raw) as { project?: { id?: string; status?: string } };
+      if (parsed?.project?.status === "in_progress") return parsed.project.id || f;
+    } catch {
+      /* skip */
+    }
+  }
+  return null;
+}
+
 function extractVideoId(url: string): string | null {
   const patterns = [
     /[?&]v=([a-zA-Z0-9_-]{11})/,
@@ -22,12 +37,25 @@ function extractVideoId(url: string): string | null {
   return null;
 }
 
-function writeStubManifest(videoId: string, url: string, engine: string, targets: string[]) {
+async function fetchYoutubeTitle(url: string): Promise<string | null> {
+  try {
+    const oe = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const res = await fetch(oe, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { title?: string };
+    return (data.title || "").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStubManifest(videoId: string, url: string, engine: string, targets: string[]) {
   fs.mkdirSync(manifestDir, { recursive: true });
   const manifestPath = path.join(manifestDir, `${videoId}.yml`);
+  const title = (await fetchYoutubeTitle(url)) ?? videoId;
   const project = {
     id: videoId,
-    title: videoId,
+    title,
     source_url: url,
     source_language: "auto",
     targets,
@@ -60,8 +88,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "could not parse YouTube video id from url" }, { status: 400 });
   }
 
-  writeStubManifest(videoId, url, engine, targets);
+  await writeStubManifest(videoId, url, engine, targets);
 
+  const blocker = hasRunningJob();
+  if (blocker && blocker !== videoId) {
+    // Another job is already running; leave this one queued. The orchestra
+    // worker (or browser tick) will pick it up when the current one finishes.
+    return NextResponse.json({
+      videoId,
+      queued: true,
+      blockedBy: blocker,
+      redirect: `/projects/${videoId}`,
+    });
+  }
+
+  spawnPipeline(videoId, url, engine, targets, cleanHardsub);
+
+  return NextResponse.json({
+    videoId,
+    queued: false,
+    manifest: path.relative(repoRoot, path.join(manifestDir, `${videoId}.yml`)),
+    redirect: `/projects/${videoId}`,
+  });
+}
+
+export function spawnPipeline(
+  videoId: string,
+  url: string,
+  engine: string,
+  targets: string[],
+  cleanHardsub: boolean,
+): void {
   const args = [
     path.join(scriptsDir, "orchestra_run.py"),
     url,
@@ -90,11 +147,4 @@ export async function POST(req: NextRequest) {
     stdio: ["ignore", out, out],
   });
   proc.unref();
-
-  return NextResponse.json({
-    videoId,
-    manifest: path.relative(repoRoot, path.join(manifestDir, `${videoId}.yml`)),
-    log: path.relative(repoRoot, logFile),
-    redirect: `/projects/${videoId}`,
-  });
 }

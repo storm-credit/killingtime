@@ -255,6 +255,9 @@ export function ProjectDetail({ id, stages }: { id: string; stages: Stage[] }) {
           setData(j);
           setErr(null);
         }
+        // Kick the queue worker on every poll so the next queued job
+        // starts as soon as the current one completes.
+        fetch(`/api/queue/tick`, { method: "POST" }).catch(() => {});
       } catch {
         if (alive) setErr("서버 응답 없음");
       }

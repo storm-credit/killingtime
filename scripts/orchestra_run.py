@@ -66,10 +66,25 @@ def update_manifest(path: Path, patch: dict) -> dict:
     return project
 
 
+def _existing_manifest_title(video_id: str) -> str | None:
+    path = MANIFEST_DIR / f"{video_id}.yml"
+    if not path.exists():
+        return None
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        title = ((data or {}).get("project") or {}).get("title")
+        if title and title != video_id:
+            return title
+    except Exception:
+        pass
+    return None
+
+
 def synth_download_report(video: Path, video_id: str) -> Path:
+    preserved_title = _existing_manifest_title(video_id)
     report = {
         "video_id": video_id,
-        "title": video_id,
+        "title": preserved_title or video_id,
         "channel": None,
         "duration": None,
         "webpage_url": None,

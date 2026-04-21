@@ -238,8 +238,9 @@ def call_vertex(provider: dict, target: str, cues: list[Cue]) -> str:
     if _VERTEX_DEGRADED and fallback:
         return _vertex_try(provider, fallback, prompt)
 
-    # Try primary with backoff. 2 quota retries only so we fail over quickly.
-    max_attempts = 2 if fallback else 6
+    # Try primary with backoff. When a fallback model is configured we fail
+    # over quickly (2 retries); without one, stay patient on the primary.
+    max_attempts = 2 if fallback else 10
     delay = 10.0
     for attempt in range(1, max_attempts + 1):
         try:
@@ -254,9 +255,10 @@ def call_vertex(provider: dict, target: str, cues: list[Cue]) -> str:
                 return _vertex_try(provider, fallback, prompt)
             if attempt >= max_attempts or not is_retry:
                 raise
-            log("translate", f"vertex attempt {attempt} transient error; sleeping {delay:.0f}s")
+            reason = "quota" if is_quota else "transient error"
+            log("translate", f"vertex attempt {attempt}/{max_attempts} {reason}; sleeping {delay:.0f}s")
             time.sleep(delay)
-            delay = min(delay * 2, 60)
+            delay = min(delay * 1.8, 180)
     raise RuntimeError("unreachable")
 
 
