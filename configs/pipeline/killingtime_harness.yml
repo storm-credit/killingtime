@@ -101,6 +101,12 @@ translation_engine:
       runtime: google
       model: gemini-2.0-flash
       env_key: GEMINI_API_KEY
+    vertex:
+      runtime: vertex
+      model: gemini-2.5-flash
+      project: neonexorcist
+      location: us-central1
+      env_key: GOOGLE_APPLICATION_CREDENTIALS
     gpt:
       runtime: openai
       model: gpt-4o-mini

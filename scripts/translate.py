@@ -203,6 +203,26 @@ def call_google(provider: dict, target: str, cues: list[Cue]) -> str:
     return (resp.text or "").strip()
 
 
+def call_vertex(provider: dict, target: str, cues: list[Cue]) -> str:
+    key_path = os.getenv(provider.get("env_key", "GOOGLE_APPLICATION_CREDENTIALS"))
+    if not key_path:
+        raise SystemExit(f"{provider.get('env_key')} not set")
+    if not os.path.exists(key_path):
+        raise SystemExit(f"service account file not found: {key_path}")
+    try:
+        import vertexai
+        from vertexai.generative_models import GenerativeModel, GenerationConfig
+    except ImportError as exc:
+        raise SystemExit("google-cloud-aiplatform not installed. pip install google-cloud-aiplatform") from exc
+    vertexai.init(project=provider["project"], location=provider.get("location", "us-central1"))
+    model = GenerativeModel(provider["model"], system_instruction=SYSTEM_PROMPT)
+    resp = model.generate_content(
+        build_user_text(target, cues),
+        generation_config=GenerationConfig(temperature=0.2, max_output_tokens=8192),
+    )
+    return (resp.text or "").strip()
+
+
 def call_openai(provider: dict, target: str, cues: list[Cue]) -> str:
     if not os.getenv(provider.get("env_key", "OPENAI_API_KEY")):
         raise SystemExit(f"{provider.get('env_key')} not set")
@@ -227,6 +247,7 @@ RUNTIMES = {
     "ollama": call_ollama,
     "anthropic": call_anthropic,
     "google": call_google,
+    "vertex": call_vertex,
     "openai": call_openai,
 }
 
@@ -261,8 +282,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("source_srt", type=Path)
     ap.add_argument("--video-id", required=True)
     ap.add_argument("--targets", nargs="+", default=["ko", "es"])
-    ap.add_argument("--engine", default=None, help="local | claude | gemini | gpt (default from harness)")
+    ap.add_argument("--engine", default=None, help="local | claude | gemini | vertex | gpt (default from harness)")
     ap.add_argument("--batch", type=int, default=40)
+    ap.add_argument("--skip-until", type=int, default=0,
+                    help="translate only cues with index >= this value (1-based); useful for resuming")
+    ap.add_argument("--output-suffix", default="",
+                    help="append this to output filename, e.g. '.part2' -> <video_id>.ko.part2.srt")
     return ap.parse_args()
 
 
@@ -273,6 +298,10 @@ def main() -> int:
     source = parse_srt(args.source_srt)
     if not source:
         raise SystemExit(f"no cues parsed from {args.source_srt}")
+    if args.skip_until > 0:
+        before = len(source)
+        source = [c for c in source if c.index >= args.skip_until]
+        log("translate", f"skip-until={args.skip_until}: kept {len(source)}/{before} cues")
     log("translate", f"engine={engine_id} runtime={provider.get('runtime')} model={provider.get('model')} cues={len(source)} targets={args.targets}")
 
     outputs: list[Path] = []
@@ -284,7 +313,8 @@ def main() -> int:
         for group in chunk(source, args.batch):
             text = call_engine(engine_id, provider, target, group)
             merged.extend(reconcile(group, text))
-        out_path = TRANSLATED_DIR / f"{args.video_id}.{target}.srt"
+        suffix = args.output_suffix
+        out_path = TRANSLATED_DIR / f"{args.video_id}.{target}{suffix}.srt"
         write_srt(out_path, merged)
         outputs.append(out_path)
         log("translate", f"wrote {out_path}")
