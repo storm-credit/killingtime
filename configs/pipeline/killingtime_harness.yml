@@ -104,7 +104,8 @@ translation_engine:
     vertex:
       runtime: vertex
       model: gemini-2.5-flash
-      project: neonexorcist
+      fallback_model: gemini-2.5-flash-lite
+      project: creaturecrashvs
       location: us-central1
       env_key: GOOGLE_APPLICATION_CREDENTIALS
     gpt:

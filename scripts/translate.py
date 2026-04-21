@@ -203,39 +203,60 @@ def call_google(provider: dict, target: str, cues: list[Cue]) -> str:
     return (resp.text or "").strip()
 
 
+_VERTEX_DEGRADED = False
+
+
+def _vertex_try(provider: dict, model_name: str, prompt: str) -> str:
+    import vertexai
+    from vertexai.generative_models import GenerativeModel, GenerationConfig
+    vertexai.init(project=provider["project"], location=provider.get("location", "us-central1"))
+    model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT)
+    config = GenerationConfig(temperature=0.2, max_output_tokens=8192)
+    resp = model.generate_content(prompt, generation_config=config)
+    return (resp.text or "").strip()
+
+
 def call_vertex(provider: dict, target: str, cues: list[Cue]) -> str:
     import time
+    global _VERTEX_DEGRADED
     key_path = os.getenv(provider.get("env_key", "GOOGLE_APPLICATION_CREDENTIALS"))
     if not key_path:
         raise SystemExit(f"{provider.get('env_key')} not set")
     if not os.path.exists(key_path):
         raise SystemExit(f"service account file not found: {key_path}")
     try:
-        import vertexai
-        from vertexai.generative_models import GenerativeModel, GenerationConfig
+        import vertexai  # noqa: F401
+        from vertexai.generative_models import GenerativeModel  # noqa: F401
     except ImportError as exc:
         raise SystemExit("google-cloud-aiplatform not installed. pip install google-cloud-aiplatform") from exc
-    vertexai.init(project=provider["project"], location=provider.get("location", "us-central1"))
-    model = GenerativeModel(provider["model"], system_instruction=SYSTEM_PROMPT)
-    prompt = build_user_text(target, cues)
-    config = GenerationConfig(temperature=0.2, max_output_tokens=8192)
 
-    # Exponential backoff for 429 Resource Exhausted and other transient errors.
-    max_attempts = 6
+    primary = provider["model"]
+    fallback = provider.get("fallback_model")
+    prompt = build_user_text(target, cues)
+
+    # If we've already fallen back on a previous batch, skip straight to it.
+    if _VERTEX_DEGRADED and fallback:
+        return _vertex_try(provider, fallback, prompt)
+
+    # Try primary with backoff. 2 quota retries only so we fail over quickly.
+    max_attempts = 2 if fallback else 6
     delay = 10.0
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = model.generate_content(prompt, generation_config=config)
-            return (resp.text or "").strip()
+            return _vertex_try(provider, primary, prompt)
         except Exception as exc:
             msg = str(exc)
             is_quota = "RESOURCE_EXHAUSTED" in msg or "429" in msg or "quota" in msg.lower()
             is_retry = is_quota or "503" in msg or "UNAVAILABLE" in msg or "DEADLINE_EXCEEDED" in msg
+            if is_quota and fallback:
+                log("translate", f"vertex {primary} hit quota; degrading to fallback {fallback}")
+                _VERTEX_DEGRADED = True
+                return _vertex_try(provider, fallback, prompt)
             if attempt >= max_attempts or not is_retry:
                 raise
-            log("translate", f"vertex attempt {attempt} hit {('quota' if is_quota else 'transient error')}; sleeping {delay:.0f}s")
+            log("translate", f"vertex attempt {attempt} transient error; sleeping {delay:.0f}s")
             time.sleep(delay)
-            delay = min(delay * 2, 180)
+            delay = min(delay * 2, 60)
     raise RuntimeError("unreachable")
 
 
@@ -326,9 +347,18 @@ def main() -> int:
             log("translate", f"skipping unsupported target {target}")
             continue
         merged: list[Cue] = []
-        for group in chunk(source, args.batch):
+        groups = chunk(source, args.batch)
+        total = len(groups)
+        import time as _time
+        t0 = _time.time()
+        for i, group in enumerate(groups, 1):
+            b0 = _time.time()
             text = call_engine(engine_id, provider, target, group)
             merged.extend(reconcile(group, text))
+            elapsed = _time.time() - t0
+            batch_sec = _time.time() - b0
+            eta_sec = (elapsed / i) * (total - i)
+            log("translate", f"  [{target}] batch {i}/{total} ({batch_sec:.1f}s) · elapsed {elapsed/60:.1f}m · eta {eta_sec/60:.1f}m")
         suffix = args.output_suffix
         out_path = TRANSLATED_DIR / f"{args.video_id}.{target}{suffix}.srt"
         write_srt(out_path, merged)

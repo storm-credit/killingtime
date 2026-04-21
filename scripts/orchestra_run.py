@@ -284,15 +284,31 @@ def main() -> int:
 
     # ---- translation ----
     log("orchestra", f"translation: engine={engine_id} targets={args.targets}")
-    r = run(py(str(SCRIPTS / "translate.py"), str(src_srt),
-               "--video-id", video_id, "--targets", *args.targets,
-               "--engine", engine_id))
+    # Update the manifest to 'translation' BEFORE the subprocess so the UI
+    # reflects the current stage during the long-running translate call.
+    update_manifest(manifest_path, {"current_stage": "translation"})
+    # Don't capture stderr so translate.py's per-batch progress streams to the
+    # same log the web UI tails. Keep stdout captured to recover file paths.
+    translate_cmd = py(str(SCRIPTS / "translate.py"), str(src_srt),
+                       "--video-id", video_id, "--targets", *args.targets,
+                       "--engine", engine_id)
+    proc = subprocess.run(translate_cmd, check=True, text=True,
+                           encoding="utf-8", errors="replace",
+                           stdout=subprocess.PIPE)
+
+    class _R:
+        def __init__(self, stdout): self.stdout = stdout
+    r = _R(proc.stdout)
     translated_paths = [Path(p) for p in r.stdout.strip().splitlines() if p.strip()]
     ko = next((p for p in translated_paths if p.name.endswith(".ko.srt")), None)
     es = next((p for p in translated_paths if p.name.endswith(".es.srt")), None)
-    if not ko or not es:
-        raise SystemExit(f"translation missing outputs: {translated_paths}")
-    update_manifest(manifest_path, {"current_stage": "translation"})
+    missing = []
+    if "ko" in args.targets and not ko:
+        missing.append("ko.srt")
+    if "es" in args.targets and not es:
+        missing.append("es.srt")
+    if missing:
+        raise SystemExit(f"translation missing outputs ({missing}): {translated_paths}")
 
     # ---- qa: cue count parity ----
     src_n = count_cues(src_srt)

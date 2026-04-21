@@ -9,6 +9,9 @@ services:
     volumes:
       - .:/workspace
       - web_node_modules:/workspace/node_modules
+      # Share the main repo's outputs/ folder so Docker and host work on
+      # the same artifacts (downloads, subtitles, packages, manifests).
+      - "${OUTPUTS_DIR:-../../../outputs}:/workspace/outputs"
       # vertex service account (mount whichever host path exists)
       - "${VERTEX_SA_KEY_PATH:-./secrets/vertex-sa-key.json}:/secrets/vertex-sa-key.json:ro"
     environment:
