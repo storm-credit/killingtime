@@ -6,6 +6,9 @@ out/
 *.log
 .env
 .env.local
+secrets/
+*.pyc
+__pycache__/
 .DS_Store
 Thumbs.db
 outputs/

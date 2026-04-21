@@ -3,13 +3,24 @@ services:
     build:
       context: .
       dockerfile: web/Dockerfile
+    container_name: killingtime-web
     ports:
       - "3201:3201"
     volumes:
       - .:/workspace
       - web_node_modules:/workspace/node_modules
+      # vertex service account (mount whichever host path exists)
+      - "${VERTEX_SA_KEY_PATH:-./secrets/vertex-sa-key.json}:/secrets/vertex-sa-key.json:ro"
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/vertex-sa-key.json
+      HOSTNAME: 0.0.0.0
+      # Optional extra keys you can set in .env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     working_dir: /workspace
-    command: sh -lc "npm install && npm run dev:web"
+    command: sh -lc "npm install && ./node_modules/.bin/next dev web --hostname 0.0.0.0 --port 3201"
+    restart: unless-stopped
 
 volumes:
   web_node_modules:
