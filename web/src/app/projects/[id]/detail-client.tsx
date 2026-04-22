@@ -382,6 +382,29 @@ export function ProjectDetail({ id, stages }: { id: string; stages: Stage[] }) {
         </div>
       </div>
 
+      {done && p.artifacts?.final_mp4 ? (
+        <div className="card">
+          <div className="eyebrow">Result</div>
+          <h2 className="h2-section">완성 영상</h2>
+          <video
+            controls
+            playsInline
+            preload="metadata"
+            src={`/api/projects/${p.id}/video`}
+            style={{
+              width: "100%",
+              maxHeight: "70vh",
+              borderRadius: "var(--radius-md)",
+              background: "#000",
+              display: "block",
+            }}
+          />
+          <p className="muted" style={{ marginTop: 10, fontSize: "0.86rem", fontFamily: "var(--font-mono)" }}>
+            {String(p.artifacts.final_mp4)}
+          </p>
+        </div>
+      ) : null}
+
       <div className="card">
         <ThumbnailPicker jobId={p.id} />
       </div>

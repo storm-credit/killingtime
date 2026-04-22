@@ -1,27 +1,33 @@
-"""Generate 3 longform (16:9) thumbnail candidates per job.
+"""Generate 3 webtoon/manhwa-style longform (16:9) thumbnails per job.
 
-Approach:
-  1. Scene-detect candidate frames, pick 3 temporally spread.
-  2. For each frame, build a 1920x1080 composite:
-     - background: same frame scaled to cover, heavily blurred + desaturated.
-     - foreground: same frame pillarboxed at 1080 height, anime-style
-       edge + vibrance + unsharp filter chain.
-  3. Write jpgs to outputs/jobs/{videoId}/thumbnails/thumb_{1,2,3}.jpg
-  4. Emit manifest.json with candidate metadata (selected=null).
+Strategy (v2 — copyright-safe generation):
+  1. Pull one or two reference frames from the middle of the video (scene
+     detect, then take a couple temporally spread picks).
+  2. Feed them to Vertex `gemini-2.5-flash-image` with a stylization prompt
+     to produce a NEW 16:9 illustration inspired by (not copied from) the
+     footage.
+  3. Save three thumbnails with three prompt variants (romantic close-up,
+     emotional duo, dramatic wide). Emit a manifest the UI can pick from.
 
-Optional: Claude/Vertex-backed short captions (skipped if unavailable).
+Fallback: if the image model is unavailable, fall back to the legacy ffmpeg
+stylization pipeline.
 """
 from __future__ import annotations
 
 import argparse
+import base64
 import json
-import re
+import os
 import subprocess
-import sys
+import tempfile
 from pathlib import Path
+
+import yaml
 
 from _common import OUTPUTS, ROOT, ensure_dirs, log, run
 
+
+# ---- Reference frame extraction ----
 
 def probe_duration(video: Path) -> float:
     r = run([
@@ -36,44 +42,102 @@ def probe_duration(video: Path) -> float:
         return 0.0
 
 
-def scene_timestamps(video: Path, threshold: float = 0.4) -> list[float]:
-    """Run ffmpeg scene filter and parse pts_time values."""
-    cmd = [
-        "ffmpeg", "-hide_banner", "-i", str(video),
-        "-vf", f"select='gt(scene,{threshold})',showinfo",
-        "-vsync", "vfr",
-        "-f", "null", "-",
-    ]
+def extract_reference_frame(video: Path, ts: float, out: Path) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    run([
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-ss", f"{ts:.3f}",
+        "-i", str(video),
+        "-frames:v", "1",
+        "-q:v", "3",
+        "-vf", "scale=-2:720",  # downscale to keep the upload small
+        str(out),
+    ], capture=False)
+
+
+# ---- Vertex Gemini image generation ----
+
+def load_vertex_config() -> dict:
+    harness = yaml.safe_load((ROOT / "configs" / "pipeline" / "killingtime_harness.yml").read_text(encoding="utf-8"))
+    engines = (harness.get("translation_engine") or {}).get("providers") or {}
+    v = engines.get("vertex") or {}
+    return {
+        "project": v.get("project"),
+        "location": v.get("location", "us-central1"),
+        "env_key": v.get("env_key", "GOOGLE_APPLICATION_CREDENTIALS"),
+    }
+
+
+_ASPECT_HEADER = (
+    "IMPORTANT: Output image MUST be landscape 16:9 aspect ratio (wider than "
+    "tall), suitable for a YouTube longform thumbnail at 1920x1080 pixels. "
+    "Ignore the aspect ratio of the reference image — ONLY use it for the "
+    "character design and mood reference. The generated illustration MUST "
+    "be horizontal. "
+)
+
+PROMPTS = [
+    (
+        "romantic-closeup",
+        _ASPECT_HEADER +
+        "Korean manhwa / webtoon-style illustration of the protagonist, "
+        "medium close-up shot framed horizontally. Dramatic romantic lighting, "
+        "soft warm colour grading, emotional expression, rose-tinted background "
+        "gradient. Painterly anime art style, clean bold lines, detailed eyes, "
+        "cinematic horizontal composition. No text, logos, or watermarks.",
+    ),
+    (
+        "duo-emotional",
+        _ASPECT_HEADER +
+        "Korean webtoon illustration with two characters in an emotionally "
+        "charged moment (embrace, tension, longing). Wide horizontal framing, "
+        "both characters placed off-centre to fit 16:9, dramatic rim lighting, "
+        "desaturated warm palette, soft gradient background. Manhwa art style, "
+        "detailed shading. No text, watermarks, or logos.",
+    ),
+    (
+        "wide-dramatic",
+        _ASPECT_HEADER +
+        "Wide cinematic Korean drama webtoon illustration: the protagonist "
+        "placed on the right third, against an atmospheric backdrop (night "
+        "city skyline, rain, luxurious interior) filling the left two-thirds. "
+        "Rich dramatic lighting, bold colour accent, anime-stylized. Designed "
+        "as a 16:9 YouTube longform thumbnail with empty negative space at "
+        "top-left for an overlaid title. No text in the image.",
+    ),
+]
+
+
+def gemini_generate(project: str, location: str, reference_bytes: bytes, mime: str, prompt: str) -> bytes | None:
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
-    except subprocess.TimeoutExpired:
-        return []
-    ts: list[float] = []
-    for m in re.finditer(r"pts_time:(\d+\.?\d*)", r.stderr):
-        try:
-            ts.append(float(m.group(1)))
-        except ValueError:
-            continue
-    return ts
+        import vertexai
+        from vertexai.generative_models import GenerativeModel, Part
+    except ImportError:
+        raise SystemExit("google-cloud-aiplatform not installed")
+
+    vertexai.init(project=project, location=location)
+    model = GenerativeModel("gemini-2.5-flash-image")
+    parts = [
+        Part.from_data(mime_type=mime, data=reference_bytes),
+        Part.from_text(prompt),
+    ]
+    resp = model.generate_content(parts)
+
+    # Find the first inline image in the response
+    for cand in resp.candidates or []:
+        for part in (cand.content.parts or []):
+            inline = getattr(part, "inline_data", None)
+            if inline and getattr(inline, "mime_type", "").startswith("image/"):
+                data = inline.data
+                if isinstance(data, str):
+                    data = base64.b64decode(data)
+                return data
+    return None
 
 
-def pick_spread(timestamps: list[float], count: int, duration: float) -> list[float]:
-    if not timestamps:
-        if duration <= 0:
-            return [0.0, 0.0, 0.0][:count]
-        return [duration * p for p in (0.2, 0.5, 0.8)][:count]
-    timestamps = sorted(timestamps)
-    if len(timestamps) <= count:
-        return timestamps
-    chosen: list[float] = [timestamps[len(timestamps) // 5]]
-    while len(chosen) < count:
-        best = max(timestamps, key=lambda t: min(abs(t - c) for c in chosen))
-        chosen.append(best)
-        chosen = sorted(chosen)
-    return sorted(chosen)
+# ---- Legacy ffmpeg fallback (kept for the offline case) ----
 
-
-FILTER_CHAIN = (
+FALLBACK_CHAIN = (
     "split=2[bg][fg];"
     "[bg]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,"
     "boxblur=20:2,eq=saturation=1.4:brightness=-0.05[bgb];"
@@ -83,37 +147,27 @@ FILTER_CHAIN = (
 )
 
 
-def render_one(video: Path, ts: float, out: Path) -> None:
+def fallback_ffmpeg_render(video: Path, ts: float, out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
+    run([
         "ffmpeg", "-y", "-loglevel", "error",
         "-ss", f"{ts:.3f}",
         "-i", str(video),
         "-frames:v", "1",
-        "-vf", FILTER_CHAIN,
+        "-vf", FALLBACK_CHAIN,
         "-q:v", "2",
         str(out),
-    ]
-    run(cmd, capture=False)
+    ], capture=False)
 
 
-def write_manifest(thumbs_dir: Path, candidates: list[dict]) -> Path:
-    manifest = {
-        "version": 1,
-        "selected": None,
-        "candidates": candidates,
-    }
-    path = thumbs_dir / "manifest.json"
-    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
-    return path
-
+# ---- Driver ----
 
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", type=Path, required=True)
     ap.add_argument("--video-id", required=True)
     ap.add_argument("--count", type=int, default=3)
-    ap.add_argument("--threshold", type=float, default=0.4)
+    ap.add_argument("--force-fallback", action="store_true")
     return ap.parse_args()
 
 
@@ -127,29 +181,69 @@ def main() -> int:
     thumbs_dir.mkdir(parents=True, exist_ok=True)
 
     duration = probe_duration(args.video)
-    log("thumbs", f"duration={duration:.1f}s, scene-detecting")
-    scenes = scene_timestamps(args.video, args.threshold)
-    log("thumbs", f"{len(scenes)} scenes detected")
-    picks = pick_spread(scenes, args.count, duration)
-    log("thumbs", f"picked timestamps: {picks}")
+    # Three picks at 25 / 50 / 75% across the video as reference stills.
+    ts_picks = [duration * p for p in (0.25, 0.5, 0.75)] if duration > 0 else [5, 10, 15]
 
-    candidates: list[dict] = []
-    for i, ts in enumerate(picks):
-        out = thumbs_dir / f"thumb_{i + 1}.jpg"
-        try:
-            render_one(args.video, ts, out)
+    cfg = load_vertex_config()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        references: list[Path] = []
+        for i, ts in enumerate(ts_picks):
+            ref = tmp_dir / f"ref_{i}.jpg"
+            try:
+                extract_reference_frame(args.video, ts, ref)
+                references.append(ref)
+            except subprocess.CalledProcessError as exc:
+                log("thumbs", f"frame extract failed at {ts:.1f}s: {exc}")
+
+        if not references:
+            raise SystemExit("no reference frames could be extracted")
+
+        candidates: list[dict] = []
+        use_fallback = args.force_fallback or not cfg.get("project") or not os.getenv(cfg["env_key"])
+
+        for i, (label, prompt) in enumerate(PROMPTS[: args.count]):
+            out = thumbs_dir / f"thumb_{i + 1}.jpg"
+            ref = references[i % len(references)]
+            gen_ok = False
+
+            if not use_fallback:
+                try:
+                    log("thumbs", f"gemini-image generating {label}")
+                    data = gemini_generate(
+                        cfg["project"],
+                        cfg["location"],
+                        ref.read_bytes(),
+                        "image/jpeg",
+                        prompt,
+                    )
+                    if data:
+                        out.write_bytes(data)
+                        gen_ok = True
+                except Exception as exc:
+                    log("thumbs", f"gemini-image failed for {label}: {exc}; switching to fallback")
+                    use_fallback = True
+
+            if not gen_ok:
+                log("thumbs", f"fallback ffmpeg render for {label}")
+                fallback_ffmpeg_render(args.video, ts_picks[i % len(ts_picks)], out)
+
             candidates.append({
                 "index": i,
-                "timestamp": round(ts, 3),
+                "style": label,
+                "timestamp": round(ts_picks[i % len(ts_picks)], 3),
                 "path": str(out.relative_to(ROOT)) if ROOT in out.parents else str(out),
                 "filename": out.name,
+                "source": "gemini-image" if gen_ok else "ffmpeg-fallback",
             })
-            log("thumbs", f"rendered {out.name} @ {ts:.1f}s")
-        except subprocess.CalledProcessError as exc:
-            log("thumbs", f"failed frame {i}: {exc}")
+            log("thumbs", f"rendered {out.name} ({label})")
 
-    manifest = write_manifest(thumbs_dir, candidates)
-    log("thumbs", f"manifest at {manifest}")
+    manifest = {"version": 2, "selected": None, "candidates": candidates}
+    (thumbs_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    log("thumbs", f"manifest at {thumbs_dir / 'manifest.json'}")
     print(thumbs_dir)
     return 0
 

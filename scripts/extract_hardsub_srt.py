@@ -105,20 +105,37 @@ def fmt_ts(seconds: float) -> str:
 
 def ocr_frames(frames: list[Path], lang: str) -> list[str]:
     from paddleocr import PaddleOCR
-    ocr = PaddleOCR(use_angle_cls=False, lang=lang, show_log=False)
+    try:
+        ocr = PaddleOCR(lang=lang)
+    except Exception as exc:
+        raise SystemExit(f"failed to init PaddleOCR: {exc}")
     texts: list[str] = []
     for i, path in enumerate(frames):
         try:
-            res = ocr.ocr(str(path), cls=False)
+            res = ocr.ocr(str(path))
         except Exception as exc:
             log("hardsub-ocr", f"skip frame {i}: {exc}")
             texts.append("")
             continue
         lines = []
-        for line in (res or [[]])[0] or []:
-            _box, (text, conf) = line
-            if conf >= 0.6 and text.strip():
-                lines.append(text.strip())
+        # PaddleOCR 3.x returns a list containing one dict per image with
+        # rec_texts / rec_scores / dt_polys keys. 2.x returned nested list.
+        if res and isinstance(res, list):
+            first = res[0]
+            if isinstance(first, dict):
+                scores = first.get("rec_scores") or []
+                texts_ = first.get("rec_texts") or []
+                for text, conf in zip(texts_, scores):
+                    if conf >= 0.6 and text and text.strip():
+                        lines.append(text.strip())
+            else:
+                for line in first or []:
+                    try:
+                        _box, (text, conf) = line
+                    except Exception:
+                        continue
+                    if conf >= 0.6 and text and text.strip():
+                        lines.append(text.strip())
         texts.append(normalize_text(" ".join(lines)))
         if (i + 1) % 500 == 0:
             log("hardsub-ocr", f"ocr'd {i + 1}/{len(frames)} frames")
